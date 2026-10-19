@@ -29,6 +29,9 @@ import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 import org.json.JSONObject;
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.FirebaseOptions;
+import com.google.firebase.messaging.FirebaseMessaging;
 
 import java.util.Collections;
 
@@ -40,6 +43,8 @@ public final class MainActivity extends Activity {
     private static final int NATIVE_SCANNER = 2;
     private static final int SCAN_CAMERA_PERMISSION = 101;
 
+    private boolean firebaseReady = false;
+    private static final int NOTIFICATION_PERMISSION = 102;
     private WebView webView;
     private ValueCallback<Uri[]> uploadMessage;
     private JavaScriptReplyProxy pendingReply;
@@ -81,6 +86,12 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         webView = new WebView(this);
         setContentView(webView);
+        KaratasPushService.createChannel(this);
+        initializeFirebase();
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION);
+        }
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -176,6 +187,7 @@ public final class MainActivity extends Activity {
                         })();
                         """, null);
                 }
+                if (trusted(Uri.parse(url))) registerPushToken(view);
                 if (trusted(Uri.parse(url)) && "login".equals(Uri.parse(url).getQueryParameter("route"))) {
                     view.clearHistory();
                 }
@@ -238,7 +250,60 @@ public final class MainActivity extends Activity {
             ((DownloadManager) getSystemService(DOWNLOAD_SERVICE)).enqueue(req);
             Toast.makeText(this, "İndirme başlatıldı", Toast.LENGTH_SHORT).show();
         });
-        webView.loadUrl(SITE + "/");
+        webView.loadUrl(resolvePushStartUrl(getIntent()));
+    }
+
+    private static String resolvePushStartUrl(Intent intent) {
+        String route = intent == null ? null : intent.getStringExtra("push_route");
+        if (route != null && (route.equals("messages") || route.matches("order-show&id=[0-9]{1,15}"))) {
+            return SITE + "/index.php?route=" + route;
+        }
+        return SITE + "/";
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        if (webView != null) webView.loadUrl(resolvePushStartUrl(intent));
+    }
+
+    /** Credentials are injected at build time; APK builds without secrets but FCM stays disabled. */
+    private void initializeFirebase() {
+        try {
+            if (BuildConfig.FCM_APP_ID.isEmpty() || BuildConfig.FCM_API_KEY.isEmpty()
+                || BuildConfig.FCM_PROJECT_ID.isEmpty() || BuildConfig.FCM_SENDER_ID.isEmpty()) return;
+            FirebaseOptions options = new FirebaseOptions.Builder()
+                .setApplicationId(BuildConfig.FCM_APP_ID)
+                .setApiKey(BuildConfig.FCM_API_KEY)
+                .setProjectId(BuildConfig.FCM_PROJECT_ID)
+                .setGcmSenderId(BuildConfig.FCM_SENDER_ID)
+                .build();
+            FirebaseApp.initializeApp(this, options);
+            firebaseReady = true;
+        } catch (RuntimeException error) {
+            android.util.Log.e("CariPush", "Firebase setup is not ready", error);
+        }
+    }
+
+    private void registerPushToken(WebView view) {
+        if (!firebaseReady || view == null) return;
+        FirebaseMessaging.getInstance().getToken().addOnSuccessListener(token -> {
+            if (token == null || token.isEmpty() || isFinishing() || isDestroyed()) return;
+            String javascript = "(function(){"
+                + "var box=document.getElementById('workflowNotifications');"
+                + "if(!box||!box.dataset.csrf)return;"
+                + "var p=new URLSearchParams();"
+                + "p.set('_token',box.dataset.csrf);"
+                + "p.set('token'," + JSONObject.quote(token) + ");"
+                + "fetch('/index.php?route=push-register',{method:'POST',credentials:'same-origin',"
+                + "headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},"
+                + "body:p.toString()}).catch(function(){});"
+                + "})();";
+            runOnUiThread(() -> {
+                if (webView == view && trusted(Uri.parse(view.getUrl())))
+                    view.evaluateJavascript(javascript, null);
+            });
+        }).addOnFailureListener(error -> android.util.Log.w("CariPush", "FCM token not ready", error));
     }
 
     private void startScanner() {
