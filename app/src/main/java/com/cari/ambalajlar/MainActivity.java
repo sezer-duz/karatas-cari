@@ -130,6 +130,56 @@ public final class MainActivity extends Activity {
                 }
                 return true;
             }
+
+            @Override
+            public void onPageFinished(WebView view, String url) {
+                super.onPageFinished(view, url);
+                if (trusted(Uri.parse(url))) {
+                    // The existing server-side logout form handles the CSRF token and session.
+                    // Insert a mobile-only menu entry without changing the hosted PHP site.
+                    view.evaluateJavascript("""
+                        (function () {
+                          var sidebars = document.querySelectorAll('.sidebar-inner');
+                          for (var i = 0; i < sidebars.length; i++) {
+                            var sidebar = sidebars[i];
+                            if (sidebar.querySelector('.karatas-logout-menu')) continue;
+                            var links = sidebar.querySelectorAll('a.sidebar-link');
+                            var messages = null;
+                            for (var j = 0; j < links.length; j++) {
+                              if ((links[j].textContent || '').trim() === 'Personel Mesajları') {
+                                messages = links[j];
+                                break;
+                              }
+                            }
+                            if (!messages) continue;
+                            var form = sidebar.querySelector('.sidebar-user form[action]');
+                            if (!form || String(form.getAttribute('method')).toLowerCase() !== 'post') continue;
+                            var action = new URL(form.getAttribute('action'), window.location.href);
+                            if (action.origin !== window.location.origin || action.searchParams.get('route') !== 'logout') continue;
+                            var button = document.createElement('button');
+                            button.type = 'button';
+                            button.className = 'sidebar-link karatas-logout-menu';
+                            var icon = document.createElement('i');
+                            icon.className = 'bi bi-box-arrow-right';
+                            var text = document.createElement('span');
+                            text.textContent = 'Çıkış Yap';
+                            button.appendChild(icon);
+                            button.appendChild(text);
+                            button.addEventListener('click', (function (logoutForm) {
+                              return function () {
+                                if (typeof logoutForm.requestSubmit === 'function') logoutForm.requestSubmit();
+                                else logoutForm.submit();
+                              };
+                            })(form));
+                            messages.insertAdjacentElement('afterend', button);
+                          }
+                        })();
+                        """, null);
+                }
+                if (trusted(Uri.parse(url)) && "login".equals(Uri.parse(url).getQueryParameter("route"))) {
+                    view.clearHistory();
+                }
+            }
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 if (pendingReply != null && !url.equals(pendingPage)) reply("cancel", null, "Sayfa değişti.");
