@@ -1,0 +1,32 @@
+name: Android Build
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch: # Manuel başlatma butonu ekler
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Kodu İndir
+      uses: actions/checkout@v4
+
+    - name: Java JDK Kurulumu
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17' # Eski projeler için burayı '11' veya '8' yapmanız gerekebilir
+        distribution: 'temurin'
+
+    - name: Gradle'a Çalıştırma İzni Ver
+      run: chmod +x ./gradlew
+
+    - name: Debug APK Derle
+      run: ./gradlew assembleDebug
+
+    - name: Derlenen APK'yı Kaydet
+      uses: actions/upload-artifact@v4
+      with:
+        name: app-debug-apk
+        path: app/build/outputs/apk/debug/**/*.apk
