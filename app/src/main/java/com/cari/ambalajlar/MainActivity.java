@@ -37,7 +37,6 @@ public class MainActivity extends Activity {
         
         webView.setWebViewClient(new WebViewClient());
         
-        // 1. Dosya Yükleme (Upload) İşlemleri İçin WebChromeClient
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
@@ -58,24 +57,19 @@ public class MainActivity extends Activity {
             }
         });
 
-        // 2. Fatura ve PDF İndirme (Download) İşlemleri İçin
         webView.setDownloadListener(new DownloadListener() {
             @Override
             public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimetype, long contentLength) {
                 DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
                 request.setMimeType(mimetype);
-                
-                // Oturum çerezlerini indiriciye aktar (Giriş yapılmış alanlardan dosya indirebilmek için)
                 String cookies = CookieManager.getInstance().getCookie(url);
                 request.addRequestHeader("cookie", cookies);
                 request.addRequestHeader("User-Agent", userAgent);
-                
                 request.setDescription("Dosya indiriliyor...");
                 request.setTitle(URLUtil.guessFileName(url, contentDisposition, mimetype));
                 request.allowScanningByMediaScanner();
                 request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
                 request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, URLUtil.guessFileName(url, contentDisposition, mimetype));
-                
                 DownloadManager dm = (DownloadManager) getSystemService(DOWNLOAD_SERVICE);
                 dm.enqueue(request);
                 Toast.makeText(getApplicationContext(), "İndirme başlatıldı", Toast.LENGTH_LONG).show();
@@ -85,13 +79,24 @@ public class MainActivity extends Activity {
         webView.loadUrl("https://cari.ambalajlar.net/");
     }
 
-    // Dosya seçiciden dönen sonucu WebView'e iletme
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
         if (requestCode == FILECHOOSER_RESULTCODE) {
             if (uploadMessage == null) return;
             uploadMessage.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, intent));
             uploadMessage = null;
+        }
+    }
+
+    // --- GERİ TUŞU KONTROLÜ ---
+    @Override
+    public void onBackPressed() {
+        if (webView != null && webView.canGoBack()) {
+            // WebView içinde önceki sayfa varsa oraya dön
+            webView.goBack(); 
+        } else {
+            // Gidecek sayfa kalmadıysa (anasayfadaysa) uygulamayı kapat
+            super.onBackPressed(); 
         }
     }
 }
