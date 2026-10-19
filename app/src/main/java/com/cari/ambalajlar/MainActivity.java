@@ -278,7 +278,7 @@ public final class MainActivity extends Activity {
                 .setProjectId(BuildConfig.FCM_PROJECT_ID)
                 .setGcmSenderId(BuildConfig.FCM_SENDER_ID)
                 .build();
-            FirebaseApp.initializeApp(this, options);
+            if (FirebaseApp.getApps(this).isEmpty()) FirebaseApp.initializeApp(this, options);
             firebaseReady = true;
         } catch (RuntimeException error) {
             android.util.Log.e("CariPush", "Firebase setup is not ready", error);
