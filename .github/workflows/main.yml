@@ -3,7 +3,7 @@ name: Android Build
 on:
   push:
     branches: [ "main", "master" ]
-  workflow_dispatch: # Manuel başlatma butonu ekler
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,10 +14,13 @@ jobs:
       uses: actions/checkout@v4
 
     - name: Java JDK Kurulumu
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v5
       with:
-        java-version: '17' # Eski projeler için burayı '11' veya '8' yapmanız gerekebilir
+        java-version: '17'
         distribution: 'temurin'
+
+    - name: Eksik Gradle Dosyalarını Oluştur (Wrapper)
+      run: gradle wrapper
 
     - name: Gradle'a Çalıştırma İzni Ver
       run: chmod +x ./gradlew
