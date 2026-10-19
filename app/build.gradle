@@ -9,31 +9,15 @@ android {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
     }
-    def fcmValue = { key ->
-        def value = System.getenv(key) ?: ''
-        return '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
-    }
     defaultConfig {
         applicationId "com.cari.ambalajlar"
         minSdk 23
         targetSdk 34
-        versionCode 8
-        versionName "1.1.6"
-        buildConfigField 'String', 'FCM_APP_ID', fcmValue('FCM_APP_ID')
-        buildConfigField 'String', 'FCM_API_KEY', fcmValue('FCM_API_KEY')
-        buildConfigField 'String', 'FCM_PROJECT_ID', fcmValue('FCM_PROJECT_ID')
-        buildConfigField 'String', 'FCM_SENDER_ID', fcmValue('FCM_SENDER_ID')
-
-        // These resources let FirebaseInitProvider initialize FCM when Android
-        // starts the app process only for an incoming background notification.
-        resValue 'string', 'google_app_id', fcmValue('FCM_APP_ID')
-        resValue 'string', 'google_api_key', fcmValue('FCM_API_KEY')
-        resValue 'string', 'project_id', fcmValue('FCM_PROJECT_ID')
-        resValue 'string', 'gcm_defaultSenderId', fcmValue('FCM_SENDER_ID')
+        versionCode 9
+        versionName "1.1.7"
     }
 }
 dependencies {
-    implementation 'com.google.firebase:firebase-messaging:24.1.0'
     // AndroidX / CameraX libraries transitively pull different Kotlin stdlib versions.
     // Align stdlib and legacy jdk7/jdk8 artifacts to avoid duplicate classes in APK builds.
     implementation platform('org.jetbrains.kotlin:kotlin-bom:1.8.22')
