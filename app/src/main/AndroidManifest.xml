@@ -6,9 +6,10 @@
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
 
     <application
-        android:label="Cari Ambalajlar"
-        android:theme="@android:style/Theme.NoTitleBar"
-        android:requestLegacyExternalStorage="true">
+android:label="Cari Ambalajlar"
+    android:icon="@drawable/app_icon"
+    android:theme="@android:style/Theme.NoTitleBar"
+    android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
             android:exported="true">
