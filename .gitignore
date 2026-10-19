@@ -1,0 +1,14 @@
+# Android Studio / Gradle
+.gradle/
+.idea/
+**/build/
+local.properties
+*.iml
+.cxx/
+.externalNativeBuild/
+# Signing keys, user configuration
+*.jks
+*.keystore
+key.properties
+# Native build leftovers
+.DS_Store
