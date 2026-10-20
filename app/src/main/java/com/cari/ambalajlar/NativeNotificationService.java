@@ -38,6 +38,7 @@ public final class NativeNotificationService extends Service {
     private static final String ALERT_CHANNEL = "karatas_native_alerts_v1";
     private static final int SERVICE_ID = 3001;
     private ScheduledExecutorService executor;
+    private String lastStatus = "";
 
     public static void createChannels(android.content.Context context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -91,11 +92,31 @@ public final class NativeNotificationService extends Service {
             executor = Executors.newSingleThreadScheduledExecutor();
             executor.scheduleWithFixedDelay(this::safePoll, 0, 15, TimeUnit.SECONDS);
         }
+        updateStatus("Sunucu bağlantısı kontrol ediliyor");
         return START_STICKY;
     }
 
     private void safePoll() {
-        try { poll(); } catch (Exception e) { Log.w("CariNative", "Poll failed; retrying", e); }
+        try { poll(); }
+        catch (Exception e) {
+            Log.w("CariNative", "Poll failed; retrying", e);
+            updateStatus("Sunucuya erişilemiyor; tekrar denenecek");
+        }
+    }
+
+    private void updateStatus(String detail) {
+        if (detail.equals(lastStatus)) return;
+        lastStatus = detail;
+        Intent screen = new Intent(this, MainActivity.class);
+        PendingIntent open = PendingIntent.getActivity(this, SERVICE_ID, screen,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        Notification status = new NotificationCompat.Builder(this, RUNNING_CHANNEL)
+                .setContentTitle("Karataş Cari bildirimleri")
+                .setContentText(detail)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setOngoing(true).setContentIntent(open).build();
+        ((NotificationManager)getSystemService(NOTIFICATION_SERVICE))
+                .notify(SERVICE_ID, status);
     }
 
     private void poll() throws Exception {
@@ -112,15 +133,25 @@ public final class NativeNotificationService extends Service {
             connection.setConnectTimeout(6000);
             connection.setReadTimeout(8000);
             connection.setRequestProperty("Authorization", "Bearer " + secret);
+            // PHP-FPM/CGI on some hosting providers strips Authorization.
+            // The server accepts this equivalent, HTTPS-only device header.
+            connection.setRequestProperty("X-Karatas-Device-Token", secret);
             connection.setRequestProperty("Accept", "application/json");
             connection.setUseCaches(false);
             int response = connection.getResponseCode();
             if (response == 401 || response == 403) {
-                prefs.edit().putBoolean("registered", false).apply();
-                stopSelf();
+                updateStatus(response == 401
+                        ? "Cihaz kaydı doğrulanamadı (401)"
+                        : "Sunucu HTTPS/izin hatası (403)");
+                // Do not silently stop the service: registration/server configuration
+                // can be repaired without losing the pending notification cursor.
                 return;
             }
-            if (response != 200) return;
+            if (response != 200) {
+                updateStatus("Sunucu yanıtı: HTTP " + response);
+                return;
+            }
+            updateStatus("Sunucu bağlı, yeni bildirimler izleniyor");
             StringBuilder output = new StringBuilder();
             try (BufferedReader reader = new BufferedReader(
                     new InputStreamReader(connection.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
