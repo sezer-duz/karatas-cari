@@ -29,11 +29,10 @@ import androidx.webkit.WebViewCompat;
 import androidx.webkit.WebViewFeature;
 
 import org.json.JSONObject;
-import com.google.firebase.FirebaseApp;
-import com.google.firebase.FirebaseOptions;
-import com.google.firebase.messaging.FirebaseMessaging;
 
 import java.util.Collections;
+import java.security.SecureRandom;
+import android.content.SharedPreferences;
 
 public final class MainActivity extends Activity {
     // Change this to your own HTTPS site BEFORE shipping a variant for another server.
@@ -43,7 +42,6 @@ public final class MainActivity extends Activity {
     private static final int NATIVE_SCANNER = 2;
     private static final int SCAN_CAMERA_PERMISSION = 101;
 
-    private boolean firebaseReady = false;
     private static final int NOTIFICATION_PERMISSION = 102;
     private WebView webView;
     private ValueCallback<Uri[]> uploadMessage;
@@ -86,8 +84,7 @@ public final class MainActivity extends Activity {
         super.onCreate(savedInstanceState);
         webView = new WebView(this);
         setContentView(webView);
-        KaratasPushService.createChannel(this);
-        initializeFirebase();
+        NativeNotificationService.createChannels(this);
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, NOTIFICATION_PERMISSION);
@@ -103,6 +100,33 @@ public final class MainActivity extends Activity {
         CookieManager.getInstance().setAcceptCookie(true);
 
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+            WebViewCompat.addWebMessageListener(webView, "KaratasNativePoll",
+                Collections.singleton(SITE), (view, message, origin, isMainFrame, replyProxy) -> {
+                    if (!isMainFrame || !trusted(origin) || !trusted(Uri.parse(view.getUrl()))
+                          || message.getType()!=WebMessageCompat.TYPE_STRING) return;
+                    try {
+                        JSONObject data = new JSONObject(message.getData());
+                        if (!"ready".equals(data.optString("action"))) return;
+                        SharedPreferences prefs = getSharedPreferences(NativeNotificationService.PREFS, MODE_PRIVATE);
+                        if (!prefs.getString("device_id", "").equals(data.optString("device_id"))) return;
+                        String user = data.optString("user_id", "");
+                        if (!user.matches("[0-9]{1,14}")) return;
+                        long cursor = prefs.getLong("cursor", -1);
+                        if (!user.equals(prefs.getString("user_id", ""))) cursor = -1;
+                        if (cursor < 0) cursor = data.optLong("cursor", 0);
+                        prefs.edit().putString("user_id", user).putLong("cursor", cursor)
+                            .putBoolean("registered", true).apply();
+                        try {
+                            Intent start = new Intent(this, NativeNotificationService.class);
+                            ContextCompat.startForegroundService(this, start);
+                        } catch (RuntimeException error) {
+                            android.util.Log.w("CariNative", "Could not start notifications", error);
+                        }
+                    } catch (Exception error) {
+                        android.util.Log.w("CariNative", "Notification registration callback failed", error);
+                    }
+                });
+
             WebViewCompat.addWebMessageListener(webView, "KaratasBarcode",
                 Collections.singleton(SITE), (view, message, origin, isMainFrame, replyProxy) -> {
                     // Only the trusted top-level HTTPS origin is allowed to launch native camera.
@@ -187,8 +211,9 @@ public final class MainActivity extends Activity {
                         })();
                         """, null);
                 }
-                if (trusted(Uri.parse(url))) registerPushToken(view);
+                if (trusted(Uri.parse(url))) registerNativeNotifications(view);
                 if (trusted(Uri.parse(url)) && "login".equals(Uri.parse(url).getQueryParameter("route"))) {
+                    stopNativeNotifications();
                     view.clearHistory();
                 }
             }
@@ -267,43 +292,53 @@ public final class MainActivity extends Activity {
         if (webView != null) webView.loadUrl(resolvePushStartUrl(intent));
     }
 
-    /** Credentials are injected at build time; APK builds without secrets but FCM stays disabled. */
-    private void initializeFirebase() {
-        try {
-            if (BuildConfig.FCM_APP_ID.isEmpty() || BuildConfig.FCM_API_KEY.isEmpty()
-                || BuildConfig.FCM_PROJECT_ID.isEmpty() || BuildConfig.FCM_SENDER_ID.isEmpty()) return;
-            FirebaseOptions options = new FirebaseOptions.Builder()
-                .setApplicationId(BuildConfig.FCM_APP_ID)
-                .setApiKey(BuildConfig.FCM_API_KEY)
-                .setProjectId(BuildConfig.FCM_PROJECT_ID)
-                .setGcmSenderId(BuildConfig.FCM_SENDER_ID)
-                .build();
-            if (FirebaseApp.getApps(this).isEmpty()) FirebaseApp.initializeApp(this, options);
-            firebaseReady = true;
-        } catch (RuntimeException error) {
-            android.util.Log.e("CariPush", "Firebase setup is not ready", error);
+    private static String randomHex(int size) {
+        byte[] bytes = new byte[size];
+        new SecureRandom().nextBytes(bytes);
+        StringBuilder result = new StringBuilder(size * 2);
+        for (byte b : bytes) {
+            result.append(Character.forDigit((b >> 4) & 15, 16));
+            result.append(Character.forDigit(b & 15, 16));
         }
+        return result.toString();
     }
 
-    private void registerPushToken(WebView view) {
-        if (!firebaseReady || view == null) return;
-        FirebaseMessaging.getInstance().getToken().addOnSuccessListener(token -> {
-            if (token == null || token.isEmpty() || isFinishing() || isDestroyed()) return;
-            String javascript = "(function(){"
-                + "var box=document.getElementById('workflowNotifications');"
-                + "if(!box||!box.dataset.csrf)return;"
-                + "var p=new URLSearchParams();"
-                + "p.set('_token',box.dataset.csrf);"
-                + "p.set('token'," + JSONObject.quote(token) + ");"
-                + "fetch('/index.php?route=push-register',{method:'POST',credentials:'same-origin',"
-                + "headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},"
-                + "body:p.toString()}).catch(function(){});"
-                + "})();";
-            runOnUiThread(() -> {
-                if (webView == view && trusted(Uri.parse(view.getUrl())))
-                    view.evaluateJavascript(javascript, null);
-            });
-        }).addOnFailureListener(error -> android.util.Log.w("CariPush", "FCM token not ready", error));
+    private void stopNativeNotifications() {
+        SharedPreferences prefs = getSharedPreferences(NativeNotificationService.PREFS, MODE_PRIVATE);
+        prefs.edit().putBoolean("registered", false).remove("token")
+                .remove("user_id").remove("cursor").apply();
+        stopService(new Intent(this, NativeNotificationService.class));
+    }
+
+    /** A registered session and a CSRF-protected server exchange are required. */
+    private void registerNativeNotifications(WebView view) {
+        SharedPreferences prefs = getSharedPreferences(NativeNotificationService.PREFS, MODE_PRIVATE);
+        String deviceId = prefs.getString("device_id", "");
+        if (deviceId.length() != 32) {
+            deviceId = randomHex(16);
+            prefs.edit().putString("device_id", deviceId).apply();
+        }
+        String token = prefs.getString("token", "");
+        if (token.length() != 64) {
+            token = randomHex(32);
+            prefs.edit().putString("token", token).apply();
+        }
+        String js = "(function(){"
+          + "var box=document.getElementById('workflowNotifications');"
+          + "if(!box||!box.dataset.csrf||!box.dataset.userId)return;"
+          + "var req=new URLSearchParams();"
+          + "req.set('_token',box.dataset.csrf);"
+          + "req.set('device_id'," + JSONObject.quote(deviceId) + ");"
+          + "req.set('token'," + JSONObject.quote(token) + ");"
+          + "fetch('/index.php?route=native-register',{method:'POST',credentials:'same-origin',"
+          + "headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:req.toString()})"
+          + ".then(function(r){if(!r.ok)throw Error('registration');return r.json();})"
+          + ".then(function(r){if(r.ok&&window.KaratasNativePoll)"
+          + "window.KaratasNativePoll.postMessage(JSON.stringify({action:'ready',"
+          + "device_id:" + JSONObject.quote(deviceId) + ",user_id:box.dataset.userId,cursor:r.cursor}));"
+          + "}).catch(function(e){console.warn('Native notification registration failed');});"
+          + "})();";
+        if (view != null && trusted(Uri.parse(view.getUrl()))) view.evaluateJavascript(js, null);
     }
 
     private void startScanner() {
