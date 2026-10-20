@@ -43,6 +43,7 @@ public final class MainActivity extends Activity {
     private static final int SCAN_CAMERA_PERMISSION = 101;
 
     private static final int NOTIFICATION_PERMISSION = 102;
+    private String lastRegistrationError = "";
     private WebView webView;
     private ValueCallback<Uri[]> uploadMessage;
     private JavaScriptReplyProxy pendingReply;
@@ -106,7 +107,17 @@ public final class MainActivity extends Activity {
                           || message.getType()!=WebMessageCompat.TYPE_STRING) return;
                     try {
                         JSONObject data = new JSONObject(message.getData());
+                        if ("error".equals(data.optString("action"))) {
+                            String detail = data.optString("detail", "Sunucuya cihaz kaydı yapılamadı");
+                            if (!detail.equals(lastRegistrationError)) {
+                                lastRegistrationError = detail;
+                                runOnUiThread(() -> Toast.makeText(MainActivity.this,
+                                    "Arka plan bildirimleri: " + detail, Toast.LENGTH_LONG).show());
+                            }
+                            return;
+                        }
                         if (!"ready".equals(data.optString("action"))) return;
+                        lastRegistrationError = "";
                         SharedPreferences prefs = getSharedPreferences(NativeNotificationService.PREFS, MODE_PRIVATE);
                         if (!prefs.getString("device_id", "").equals(data.optString("device_id"))) return;
                         String user = data.optString("user_id", "");
@@ -332,11 +343,14 @@ public final class MainActivity extends Activity {
           + "req.set('token'," + JSONObject.quote(token) + ");"
           + "fetch('/index.php?route=native-register',{method:'POST',credentials:'same-origin',"
           + "headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},body:req.toString()})"
-          + ".then(function(r){if(!r.ok)throw Error('registration');return r.json();})"
+          + ".then(function(r){if(!r.ok)throw Error('HTTP '+r.status);return r.json();})"
           + ".then(function(r){if(r.ok&&window.KaratasNativePoll)"
           + "window.KaratasNativePoll.postMessage(JSON.stringify({action:'ready',"
           + "device_id:" + JSONObject.quote(deviceId) + ",user_id:box.dataset.userId,cursor:r.cursor}));"
-          + "}).catch(function(e){console.warn('Native notification registration failed');});"
+          + "}).catch(function(e){"
+          + "if(window.KaratasNativePoll)window.KaratasNativePoll.postMessage("
+          + "JSON.stringify({action:'error',detail:'Kayıt başarısız ('+String(e.message||'ağ')+')'}));"
+          + "});"
           + "})();";
         if (view != null && trusted(Uri.parse(view.getUrl()))) view.evaluateJavascript(js, null);
     }
