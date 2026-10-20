@@ -1,0 +1,79 @@
+name: Karatas Cari iOS - IPA Derleme
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-build.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-build.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-ios:
+    name: iPhoneOS release build (unsigned)
+    runs-on: macos-15
+    timeout-minutes: 40
+    steps:
+      - name: Kodu indir
+        uses: actions/checkout@v4
+
+      - name: Xcode ve Swift sürümü
+        run: |
+          xcodebuild -version
+          swift --version
+
+      - name: XcodeGen kur
+        run: |
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: iOS Xcode projesini oluştur
+        run: |
+          cd ios
+          xcodegen generate --spec project.yml
+          xcodebuild -list -project KaratasCari.xcodeproj
+
+      - name: iOS uygulamasını derle
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project ios/KaratasCari.xcodeproj \
+            -scheme KaratasCari \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/karatas-ios-build" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: İmzasız IPA paketini oluştur
+        run: |
+          set -euo pipefail
+          APP="$RUNNER_TEMP/karatas-ios-build/Build/Products/Release-iphoneos/KaratasCari.app"
+          test -d "$APP"
+          mkdir -p "$RUNNER_TEMP/karatas-unsigned/Payload"
+          ditto "$APP" "$RUNNER_TEMP/karatas-unsigned/Payload/KaratasCari.app"
+          (
+            cd "$RUNNER_TEMP/karatas-unsigned"
+            ditto -c -k --sequesterRsrc --keepParent Payload "$GITHUB_WORKSPACE/karatas-cari-ios-unsigned.ipa"
+          )
+          ls -lh "$GITHUB_WORKSPACE/karatas-cari-ios-unsigned.ipa"
+          echo "⚠️ Bu IPA kod imzasızdır; iPhone'a doğrudan kurulamaz. Apple Developer sertifikası ve provisioning profile ile yeniden imzalanmalıdır." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: iOS imzasız IPA dosyasını kaydet
+        uses: actions/upload-artifact@v4
+        with:
+          name: karatas-cari-ios-unsigned-ipa
+          path: karatas-cari-ios-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14
