@@ -186,35 +186,51 @@ final class MainViewController: UIViewController, WKNavigationDelegate, WKUIDele
     // never clear browser cookies as a replacement for server-side logout.
     private static let logoutMenuScript = #"""
     (function () {
-      if (document.querySelector('.karatas-ios-logout')) return;
-      var sidebar = document.querySelector('.sidebar-inner');
-      if (!sidebar) return;
-      var links = sidebar.querySelectorAll('a.sidebar-link');
-      var messages = null;
-      for (var i = 0; i < links.length; i++) {
-        if ((links[i].textContent || '').trim() === 'Personel Mesajları') {
-          messages = links[i]; break;
+      // PHP v1.36.8 renders a secure logout form directly below Personel Sohbetleri.
+      // This bridge also supports older PHP versions without duplicating the form.
+      document.querySelectorAll('.sidebar-inner').forEach(function (sidebar) {
+        if (sidebar.querySelector('.karatas-ios-logout')) return;
+        var links = sidebar.querySelectorAll('a.sidebar-link');
+        var messages = null;
+        for (var i = 0; i < links.length; i++) {
+          if (['Personel Sohbetleri', 'Personel Mesajları'].includes((links[i].textContent || '').trim())) {
+            messages = links[i];
+            break;
+          }
         }
-      }
-      if (!messages) return;
-      var form = sidebar.querySelector('.sidebar-user form[action]');
-      if (!form || String(form.getAttribute('method')).toLowerCase() !== 'post') return;
-      var url = new URL(form.getAttribute('action'), location.href);
-      if (url.origin !== location.origin || url.searchParams.get('route') !== 'logout') return;
-      var button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'sidebar-link karatas-ios-logout';
-      var icon = document.createElement('i');
-      icon.className = 'bi bi-box-arrow-right';
-      var label = document.createElement('span');
-      label.textContent = 'Çıkış Yap';
-      button.appendChild(icon);
-      button.appendChild(label);
-      button.addEventListener('click', function () {
-        if (typeof form.requestSubmit === 'function') form.requestSubmit();
-        else form.submit();
+        if (!messages) return;
+        var sibling = messages.nextElementSibling;
+        if (sibling && sibling.matches('form') && sibling.querySelector('button[aria-label="Çıkış Yap"]')) return;
+
+        var original = sidebar.querySelector('.sidebar-user form[action]');
+        if (!original || String(original.getAttribute('method')).toLowerCase() !== 'post') return;
+        var url = new URL(original.getAttribute('action'), location.href);
+        if (url.origin !== location.origin || url.searchParams.get('route') !== 'logout') return;
+        var token = original.querySelector('input[name="_token"]');
+        if (!token) return;
+
+        var form = document.createElement('form');
+        form.method = 'post';
+        form.action = original.action;
+        form.className = 'm-0 karatas-ios-logout';
+        var hidden = document.createElement('input');
+        hidden.type = 'hidden';
+        hidden.name = '_token';
+        hidden.value = token.value;
+        var button = document.createElement('button');
+        button.type = 'submit';
+        button.className = 'sidebar-link w-100 text-start';
+        button.setAttribute('aria-label', 'Çıkış Yap');
+        var icon = document.createElement('i');
+        icon.className = 'bi bi-box-arrow-right';
+        var label = document.createElement('span');
+        label.textContent = 'Çıkış Yap';
+        button.appendChild(icon);
+        button.appendChild(label);
+        form.appendChild(hidden);
+        form.appendChild(button);
+        messages.insertAdjacentElement('afterend', form);
       });
-      messages.insertAdjacentElement('afterend', button);
     })();
     """#
 }
