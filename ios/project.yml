@@ -1,0 +1,29 @@
+name: KaratasCari
+options:
+  bundleIdPrefix: com.cari.ambalajlar
+  deploymentTarget:
+    iOS: "15.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+targets:
+  KaratasCari:
+    type: application
+    platform: iOS
+    sources:
+      - path: KaratasCari
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.cari.ambalajlar.ios
+        PRODUCT_NAME: KaratasCari
+        MARKETING_VERSION: "1.0.0"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: "Karataş Cari"
+        INFOPLIST_KEY_NSCameraUsageDescription: "Stok sayımı, sipariş ve ürün barkodlarını kamerayla okutmak için kamera izni gerekir."
+        INFOPLIST_KEY_NSPhotoLibraryUsageDescription: "Cari belgelerine fotoğraf ve dosya eklemek için fotoğraf arşivine erişim gerekir."
+        INFOPLIST_KEY_UILaunchScreen_Generation: "YES"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGN_STYLE: Automatic
+        SUPPORTS_MACCATALYST: "NO"
